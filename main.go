@@ -1,28 +1,21 @@
 package main
 
 import (
-	_ "embed"
 	"log"
 	"sync"
 	"sync/atomic"
 
 	"github.com/egoist/mygo"
-)
-
-//go:embed index.html
-var page string
-
-var (
-	filesAdded  = mygo.NewEvent[[]string]("files-added")
-	inputsReady = mygo.NewEvent[bool]("inputs-ready")
+	"github.com/egoist/mygo/ui"
 )
 
 var (
-	mainWindow   *mygo.Window
-	windowMu     sync.Mutex
-	inputMu      sync.Mutex
-	pendingFiles []string
-	appReady     atomic.Bool
+	state            = newImageApp()
+	mainWindow       *mygo.Window
+	windowMu         sync.Mutex
+	inputMu          sync.Mutex
+	pending          []string
+	applicationReady atomic.Bool
 )
 
 func openWindow() {
@@ -41,51 +34,43 @@ func openWindow() {
 		MinHeight:       460,
 		StateKey:        "main",
 		TitleBarStyle:   mygo.TitleBarHidden,
-		TitleBarHeight:  64,
+		TitleBarHeight:  56,
 		BackgroundColor: "light-dark(#f4f4f6, #18181b)",
+		Content:         ui.View(state.view),
 	})
-	mainWindow.Page().LoadHTML(page, "")
-	mainWindow.OnFileDrop(func(event *mygo.FileDropEvent) {
-		_ = filesAdded.Emit(mainWindow, event.Paths)
-	})
-}
-
-func chooseFromMenu(window *mygo.Window) {
-	go func() {
-		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Parent:   window,
-			Title:    "选择要压缩的图片",
-			Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg"}}},
-			Multiple: true,
-		})
-		if err == nil && len(paths) > 0 {
-			enqueueFiles(paths)
-		}
-	}()
+	state.window = mainWindow
+	state.update = mainWindow.Update
 }
 
 func enqueueFiles(paths []string) {
 	inputMu.Lock()
-	pendingFiles = append(pendingFiles, paths...)
+	pending = append(pending, paths...)
 	inputMu.Unlock()
-	if !appReady.Load() {
+	if !applicationReady.Load() {
 		return
 	}
 	openWindow()
-	_ = inputsReady.Emit(mainWindow, true)
+	mainWindow.Update(func() { state.addPaths(takePending()) })
+}
+
+func takePending() []string {
+	inputMu.Lock()
+	defer inputMu.Unlock()
+	paths := pending
+	pending = nil
+	return paths
 }
 
 func main() {
-	mygo.Bind(ImageService{})
 	app := mygo.App
 	app.SetName("Image Min")
 	app.OnOpenFile(func(path string) { enqueueFiles([]string{path}) })
 	app.WhenReady(func() {
-		appReady.Store(true)
+		applicationReady.Store(true)
 		app.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
 			{Role: mygo.RoleAppMenu},
 			{Label: "文件", Submenu: []*mygo.MenuItem{
-				{Label: "添加图片…", Accelerator: "CmdOrCtrl+O", Click: func(_ *mygo.MenuItem, w *mygo.Window) { chooseFromMenu(w) }},
+				{Label: "添加图片…", Accelerator: "CmdOrCtrl+O", Click: func(*mygo.MenuItem, *mygo.Window) { state.pickImages() }},
 				mygo.Separator(),
 				{Role: mygo.RoleClose},
 			}},
@@ -94,6 +79,7 @@ func main() {
 			{Role: mygo.RoleWindowMenu},
 		}))
 		openWindow()
+		state.addPaths(takePending())
 	})
 	app.OnWindowAllClosed(func() {})
 	app.OnActivate(func(hasVisibleWindows bool) {

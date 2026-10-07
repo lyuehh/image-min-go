@@ -1,42 +1,20 @@
 package main
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/egoist/mygo"
 )
 
-type ImageService struct{}
-
 type ImageInfo struct {
-	Path  string `json:"path"`
-	Name  string `json:"name"`
-	Size  int64  `json:"size"`
-	Error string `json:"error,omitempty"`
+	Path  string
+	Name  string
+	Size  int64
+	Error string
 }
 
-func (ImageService) PickImages(ctx context.Context) ([]string, error) {
-	return mygo.Dialog.Open(mygo.OpenDialogOptions{
-		Parent:   mygo.CallerWindow(ctx),
-		Title:    "选择要压缩的图片",
-		Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg"}}},
-		Multiple: true,
-	})
-}
-
-func (ImageService) TakePendingFiles() []string {
-	inputMu.Lock()
-	defer inputMu.Unlock()
-	paths := pendingFiles
-	pendingFiles = nil
-	return paths
-}
-
-func (ImageService) Inspect(paths []string) []ImageInfo {
+func inspectPaths(paths []string) []ImageInfo {
 	files := expandPaths(paths)
 	result := make([]ImageInfo, 0, len(files))
 	for _, path := range files {
@@ -52,22 +30,6 @@ func (ImageService) Inspect(paths []string) []ImageInfo {
 		result = append(result, item)
 	}
 	return result
-}
-
-func (ImageService) Compress(paths []string, options CompressionOptions) []CompressionResult {
-	results := make([]CompressionResult, len(paths))
-	for i, path := range paths {
-		results[i] = compressImage(path, options)
-	}
-	return results
-}
-
-func (ImageService) Reveal(path string) error {
-	if path == "" {
-		return nil
-	}
-	mygo.Shell.ShowItemInFolder(path)
-	return nil
 }
 
 func expandPaths(paths []string) []string {

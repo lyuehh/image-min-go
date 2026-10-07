@@ -1,6 +1,6 @@
 # Image Min
 
-一个使用 [MyGO](https://github.com/egoist/mygo) 构建的轻量级 macOS 图片压缩工具。把 PNG 或 JPEG 图片拖进窗口，Image Min 会在原文件旁生成一个带 `-min` 后缀的压缩副本，不会覆盖原图。
+一个使用 [MyGO](https://github.com/egoist/mygo) 原生 UI 构建的轻量级 macOS 图片压缩工具。界面完全由 Go 绘制，不使用 HTML、JavaScript 或 WebView。把 PNG 或 JPEG 图片拖进窗口，Image Min 会在原文件旁生成一个带 `-min` 后缀的压缩副本，不会覆盖原图。
 
 ## 功能
 
