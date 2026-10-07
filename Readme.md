@@ -35,6 +35,10 @@ go tool mygo build
 
 产物默认写入 `build/`。
 
+## Go 初学者阅读指南
+
+建议先阅读 [`docs/GO_BEGINNER_GUIDE.md`](docs/GO_BEGINNER_GUIDE.md)。它按程序启动顺序介绍各文件职责，并解释本项目出现的 Go 语法、常用符号、指针、切片、错误处理、goroutine、MyGO 原生 UI 状态更新和文件安全注意事项。核心源码也包含对应的逐段中文注释。
+
 ## 当前范围
 
 首个版本支持 PNG、JPG 和 JPEG。重新编码会移除 EXIF 等元数据；JPEG 的 EXIF 方向会先应用到像素，避免输出方向发生变化。动画 GIF、WebP、AVIF 和 SVG 暂未包含在 MVP 中。

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -11,6 +12,8 @@ import (
 	"testing"
 )
 
+// TestCompressPNGPreservesPixelsAndNeverGrows 创建临时 PNG，验证透明像素保持不变，
+// 且“压缩”输出不会比输入更大。t.TempDir 会在测试结束后自动清理目录。
 func TestCompressPNGPreservesPixelsAndNeverGrows(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "alpha.png")
@@ -36,6 +39,8 @@ func TestCompressPNGPreservesPixelsAndNeverGrows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// .(color.NRGBA) 是类型断言：Convert 返回 color.Color 接口，这里取出具体值。
+	// 若实际类型不是 color.NRGBA，断言会 panic；NRGBAModel.Convert 的契约保证它是。
 	want := color.NRGBAModel.Convert(img.At(25, 31)).(color.NRGBA)
 	got := color.NRGBAModel.Convert(out.At(25, 31)).(color.NRGBA)
 	if got != want {
@@ -43,6 +48,7 @@ func TestCompressPNGPreservesPixelsAndNeverGrows(t *testing.T) {
 	}
 }
 
+// TestCompressJPEGAndAvoidsOverwrite 验证有损 JPEG 会减小，并且第二次运行使用新文件名。
 func TestCompressJPEGAndAvoidsOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "photo.jpg")
@@ -76,6 +82,7 @@ func TestCompressJPEGAndAvoidsOverwrite(t *testing.T) {
 	}
 }
 
+// TestCompressRejectsInvalidInputAndQuality 覆盖“不支持格式、非法参数、损坏图片”错误。
 func TestCompressRejectsInvalidInputAndQuality(t *testing.T) {
 	dir := t.TempDir()
 	textPath := filepath.Join(dir, "note.txt")
@@ -97,6 +104,7 @@ func TestCompressRejectsInvalidInputAndQuality(t *testing.T) {
 	}
 }
 
+// TestExpandPathsFindsImagesAndDeduplicates 验证目录递归、扩展名大小写和路径去重。
 func TestExpandPathsFindsImagesAndDeduplicates(t *testing.T) {
 	dir := t.TempDir()
 	a := filepath.Join(dir, "a.png")
@@ -115,6 +123,26 @@ func TestExpandPathsFindsImagesAndDeduplicates(t *testing.T) {
 	}
 }
 
+// TestWriteAtomicNeverOverwritesExistingFile 模拟输出名在检查后被其他进程抢占。
+// writeAtomic 必须返回错误，并完整保留已经存在的数据。
+func TestWriteAtomicNeverOverwritesExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "already-there.png")
+	if err := os.WriteFile(path, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAtomic(path, bytes.NewReader([]byte("replacement")), 0o644); err == nil {
+		t.Fatal("writeAtomic unexpectedly overwrote an existing path")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Fatalf("existing data changed to %q", data)
+	}
+}
+
+// writePNG 是测试辅助函数。t.Helper 让失败位置指向调用它的测试，而不是辅助函数内部。
 func writePNG(t *testing.T, path string, img image.Image, level png.CompressionLevel) {
 	t.Helper()
 	f, err := os.Create(path)
@@ -129,6 +157,7 @@ func writePNG(t *testing.T, path string, img image.Image, level png.CompressionL
 	}
 }
 
+// imagingOpen 只供测试读取 PNG 输出。defer 确保 Decode 成功或失败后文件都关闭。
 func imagingOpen(path string) (image.Image, error) {
 	f, err := os.Open(path)
 	if err != nil {
