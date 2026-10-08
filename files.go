@@ -31,7 +31,7 @@ func inspectPaths(paths []string) []ImageInfo {
 			item.Error = err.Error()
 		} else if _, ok := supportedFormat(path); !ok {
 			// if 初始化语句声明的 ok 只在这条 if/else 链中可见。
-			item.Error = "仅支持 PNG 和 JPEG"
+			item.Error = unsupportedFormatMessage
 		} else {
 			item.Size = info.Size()
 		}
