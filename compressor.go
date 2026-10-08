@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -12,7 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	nativewebp "github.com/HugoSmits86/nativewebp"
 	"github.com/disintegration/imaging"
+	"github.com/tdewolff/minify/v2"
+	"github.com/tdewolff/minify/v2/svg"
+	"golang.org/x/image/webp"
 )
 
 // defaultJPEGQuality 是用户没有指定质量时采用的默认值。
@@ -66,8 +71,13 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 
 	format, ok := supportedFormat(path)
 	if !ok {
-		result.Error = "仅支持 PNG 和 JPEG"
+		result.Error = unsupportedFormatMessage
 		return result
+	}
+
+	// SVG 是基于 XML 的矢量格式，没有像素，也不走解码/重新编码流程，而是文本压缩。
+	if format == "svg" {
+		return compressSVG(path, info, result)
 	}
 
 	quality := options.JPEGQuality
@@ -89,13 +99,21 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 	// 文件都会关闭。这里忽略 Close 的错误，因为我们只读取该文件。
 	defer file.Close()
 
-	// image.Image 是接口：JPEG 和 PNG 解码出的不同具体图片类型都能赋给它。
+	// 动画 GIF 需要保留所有帧，走单独的多帧解码/编码分支。
+	if format == "gif" {
+		return compressGIF(path, file, info, result)
+	}
+
+	// image.Image 是接口：JPEG、PNG、WebP 解码出的不同具体图片类型都能赋给它。
 	var img image.Image
-	if format == "jpeg" {
+	switch format {
+	case "jpeg":
 		// 手机照片经常用 EXIF Orientation 表示方向。AutoOrientation 会先把方向真正
 		// 应用到像素，否则重新编码、去掉 EXIF 后图片可能横过来或倒过来。
 		img, err = imaging.Decode(file, imaging.AutoOrientation(true))
-	} else {
+	case "webp":
+		img, err = webp.Decode(file)
+	default:
 		img, err = png.Decode(file)
 	}
 	if err != nil {
@@ -109,9 +127,13 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 	// bytes.Buffer 实现 io.Writer，把编码结果先放在内存中。这样可在落盘前比较大小，
 	// 避免“压缩”后反而生成更大的文件。注意：超大图片会因此占用额外内存。
 	var encoded bytes.Buffer
-	if format == "jpeg" {
+	switch format {
+	case "jpeg":
 		err = jpeg.Encode(&encoded, img, &jpeg.Options{Quality: quality})
-	} else {
+	case "webp":
+		// nativewebp 始终输出无损 VP8L，默认压缩级别已能显著减小典型 WebP 体积。
+		err = nativewebp.Encode(&encoded, img, nil)
+	default:
 		encoder := png.Encoder{CompressionLevel: png.BestCompression}
 		err = encoder.Encode(&encoded, img)
 	}
@@ -120,33 +142,13 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 		return result
 	}
 
-	outputPath, err := nextOutputPath(path)
-	if err != nil {
-		result.Error = "创建输出路径失败: " + err.Error()
-		return result
-	}
-	result.OutputPath = outputPath
-	if int64(encoded.Len()) < info.Size() {
-		// encoded.Len() 返回 int；文件大小是 int64，所以这里要显式转换类型。
-		err = writeAtomic(outputPath, bytes.NewReader(encoded.Bytes()), info.Mode().Perm())
-		result.OutputSize = int64(encoded.Len())
-	} else {
-		// 解码已经把 file 的读取位置移动到了后面。Seek(0, io.SeekStart) 把它重置到
-		// 文件开头，之后才能完整复制原图。原图更小时直接复制，保证输出不会变大。
-		if _, err = file.Seek(0, io.SeekStart); err == nil {
-			err = writeAtomic(outputPath, file, info.Mode().Perm())
-		}
-		result.OutputSize = info.Size()
-	}
-	if err != nil {
-		result.Error = "写入失败: " + err.Error()
-		result.OutputPath = ""
-		result.OutputSize = 0
-	}
-	return result
+	return finalizeOutput(path, file, info, encoded, result)
 }
 
-// supportedFormat 根据扩展名判断当前 MVP 支持的编码格式。
+// unsupportedFormatMessage 是扩展名无法识别时统一返回的提示，列出全部支持格式。
+const unsupportedFormatMessage = "仅支持 PNG、JPEG、GIF、WebP 和 SVG"
+
+// supportedFormat 根据扩展名判断当前支持的编码格式。
 //
 // 返回 (string, bool) 是 Go 常见的“值, 是否存在”模式。调用方应先检查 bool，
 // 不能只使用字符串。ToLower 让 .JPG 这类大写扩展名也能识别。
@@ -156,9 +158,89 @@ func supportedFormat(path string) (string, bool) {
 		return "jpeg", true
 	case ".png":
 		return "png", true
+	case ".gif":
+		return "gif", true
+	case ".webp":
+		return "webp", true
+	case ".svg":
+		return "svg", true
 	default:
 		return "", false
 	}
+}
+
+// compressGIF 解码并重新编码 GIF，保留全部动画帧、延时和循环设置。
+//
+// 使用 gif.DecodeAll/EncodeAll 而不是单帧 Decode，否则动画会被压成第一帧。
+// file 的读取位置已在调用处位于文件开头。
+func compressGIF(path string, file *os.File, info os.FileInfo, result CompressionResult) CompressionResult {
+	anim, err := gif.DecodeAll(file)
+	if err != nil {
+		result.Error = "无法解码图片: " + err.Error()
+		return result
+	}
+	result.Width, result.Height = anim.Config.Width, anim.Config.Height
+	// 零值 Config 时，EncodeAll 以第一帧尺寸为准；这里补上宽高用于 UI 显示。
+	if (result.Width == 0 || result.Height == 0) && len(anim.Image) > 0 {
+		bounds := anim.Image[0].Bounds()
+		result.Width, result.Height = bounds.Dx(), bounds.Dy()
+	}
+
+	var encoded bytes.Buffer
+	if err = gif.EncodeAll(&encoded, anim); err != nil {
+		result.Error = "压缩失败: " + err.Error()
+		return result
+	}
+	return finalizeOutput(path, file, info, encoded, result)
+}
+
+// compressSVG 对基于 XML 的矢量图做文本级压缩：去掉空白、注释和冗余内容。
+//
+// SVG 没有像素，Width/Height 保持为 0。minify 库按 image/svg+xml 媒体类型处理。
+func compressSVG(path string, info os.FileInfo, result CompressionResult) CompressionResult {
+	source, err := os.ReadFile(path)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+
+	m := minify.New()
+	var encoded bytes.Buffer
+	if err = svg.Minify(m, &encoded, bytes.NewReader(source), nil); err != nil {
+		result.Error = "压缩失败: " + err.Error()
+		return result
+	}
+	return finalizeOutput(path, bytes.NewReader(source), info, encoded, result)
+}
+
+// finalizeOutput 把编码结果写入非破坏性输出路径：仅当更小才写新数据，否则复制原图，
+// 保证输出不会比输入更大。original 用于“原图更小”时复制原始字节。
+func finalizeOutput(path string, original io.Reader, info os.FileInfo, encoded bytes.Buffer, result CompressionResult) CompressionResult {
+	outputPath, err := nextOutputPath(path)
+	if err != nil {
+		result.Error = "创建输出路径失败: " + err.Error()
+		return result
+	}
+	result.OutputPath = outputPath
+	if int64(encoded.Len()) < info.Size() {
+		err = writeAtomic(outputPath, bytes.NewReader(encoded.Bytes()), info.Mode().Perm())
+		result.OutputSize = int64(encoded.Len())
+	} else {
+		// 原图更小时直接复制原始字节，保证输出不会变大。original 已定位到数据开头。
+		if seeker, ok := original.(io.Seeker); ok {
+			_, err = seeker.Seek(0, io.SeekStart)
+		}
+		if err == nil {
+			err = writeAtomic(outputPath, original, info.Mode().Perm())
+		}
+		result.OutputSize = info.Size()
+	}
+	if err != nil {
+		result.Error = "写入失败: " + err.Error()
+		result.OutputPath = ""
+		result.OutputSize = 0
+	}
+	return result
 }
 
 // nextOutputPath 选择一个未占用的非破坏性输出名。

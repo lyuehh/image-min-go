@@ -313,7 +313,7 @@ ui.Text(c, "标题").FontSize(17).FontWeight(650)
 `compressImage` 的步骤：
 
 1. `os.Stat` 确认输入存在且是普通文件。
-2. 根据扩展名选择 PNG/JPEG 解码器。
+2. 根据扩展名选择解码器：PNG、JPEG、WebP 走像素解码/重新编码；GIF 用 `DecodeAll`/`EncodeAll` 保留全部帧；SVG 不是位图，走文本级压缩。
 3. JPEG 先应用 EXIF Orientation，避免去掉元数据后方向错误。
 4. 编码到 `bytes.Buffer`，尚不修改磁盘。
 5. 比较新旧大小；新数据没有更小时复制原图。
@@ -323,7 +323,7 @@ ui.Text(c, "标题").FontSize(17).FontWeight(650)
 重要注意事项：
 
 - 当前版本会移除 EXIF、GPS、相机型号等元数据。这有助于减小体积和保护隐私，但如果业务需要元数据，就必须另行保存。
-- PNG 是无损压缩；JPEG 是有损压缩。
+- PNG、GIF 是无损压缩，WebP 输出无损 VP8L；JPEG 是有损压缩；SVG 是矢量文本，只去除空白和注释。
 - 图片解码后占用的是像素内存，不是压缩文件大小。例如 12000×9000 RGBA 图片仅像素就约占 412 MiB。
 - 不要把临时文件放到另一个文件系统再建立硬链接；跨文件系统链接会失败。
 - 只先检查 `os.Stat` 再普通 `os.Rename` 存在竞态：其他进程可能在两步之间创建同名文件，并在 Unix 上被 Rename 覆盖。本项目最终用 `os.Link`，目标已存在时会安全失败。

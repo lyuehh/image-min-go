@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	nativewebp "github.com/HugoSmits86/nativewebp"
+	"golang.org/x/image/webp"
 )
 
 // TestCompressPNGPreservesPixelsAndNeverGrows 创建临时 PNG，验证透明像素保持不变，
@@ -104,6 +108,138 @@ func TestCompressRejectsInvalidInputAndQuality(t *testing.T) {
 	}
 }
 
+// TestCompressGIFPreservesAnimationFrames 验证多帧 GIF 重新编码后帧数、尺寸和循环设置保留。
+func TestCompressGIFPreservesAnimationFrames(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "anim.gif")
+	palette := color.Palette{color.Black, color.White, color.RGBA{R: 200, G: 30, B: 30, A: 255}}
+	anim := &gif.GIF{LoopCount: 0}
+	for frame := range 3 {
+		img := image.NewPaletted(image.Rect(0, 0, 32, 24), palette)
+		for y := range 24 {
+			for x := range 32 {
+				img.SetColorIndex(x, y, uint8((x+y+frame)%len(palette)))
+			}
+		}
+		anim.Image = append(anim.Image, img)
+		anim.Delay = append(anim.Delay, 10)
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.EncodeAll(f, anim); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result := compressImage(path, CompressionOptions{})
+	if result.Error != "" {
+		t.Fatalf("compressImage error: %s", result.Error)
+	}
+	if result.OutputSize > result.OriginalSize {
+		t.Fatalf("output grew from %d to %d", result.OriginalSize, result.OutputSize)
+	}
+	if filepath.Base(result.OutputPath) != "anim-min.gif" {
+		t.Fatalf("unexpected output path %q", result.OutputPath)
+	}
+	if result.Width != 32 || result.Height != 24 {
+		t.Fatalf("unexpected size %dx%d", result.Width, result.Height)
+	}
+	out, err := os.Open(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	decoded, err := gif.DecodeAll(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decoded.Image) != 3 {
+		t.Fatalf("frame count changed to %d", len(decoded.Image))
+	}
+}
+
+// TestCompressWebPReencodesLossless 验证 WebP 解码后重新编码，且输出不会变大。
+func TestCompressWebPReencodesLossless(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "pic.webp")
+	img := image.NewNRGBA(image.Rect(0, 0, 64, 48))
+	for y := range 48 {
+		for x := range 64 {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: 90, A: 255})
+		}
+	}
+	// 用最低压缩级别写出一个较大的源 WebP，让重新编码有压缩空间。
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := nativewebp.Encode(f, img, &nativewebp.Options{CompressionLevel: 0}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result := compressImage(path, CompressionOptions{})
+	if result.Error != "" {
+		t.Fatalf("compressImage error: %s", result.Error)
+	}
+	if result.OutputSize > result.OriginalSize {
+		t.Fatalf("output grew from %d to %d", result.OriginalSize, result.OutputSize)
+	}
+	if filepath.Base(result.OutputPath) != "pic-min.webp" {
+		t.Fatalf("unexpected output path %q", result.OutputPath)
+	}
+	if result.Width != 64 || result.Height != 48 {
+		t.Fatalf("unexpected size %dx%d", result.Width, result.Height)
+	}
+	out, err := os.Open(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	if _, err := webp.Decode(out); err != nil {
+		t.Fatalf("output is not valid WebP: %v", err)
+	}
+}
+
+// TestCompressSVGMinifiesText 验证 SVG 文本压缩去除注释和多余空白，且输出更小。
+func TestCompressSVGMinifiesText(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "icon.svg")
+	source := `<?xml version="1.0" encoding="UTF-8"?>
+<!-- a decorative comment that should be removed -->
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+    <rect x="10"    y="10" width="80" height="80" fill="#ff0000" />
+</svg>
+`
+	if err := os.WriteFile(path, []byte(source), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := compressImage(path, CompressionOptions{})
+	if result.Error != "" {
+		t.Fatalf("compressImage error: %s", result.Error)
+	}
+	if result.OutputSize >= result.OriginalSize {
+		t.Fatalf("expected SVG to shrink, got %d -> %d", result.OriginalSize, result.OutputSize)
+	}
+	if filepath.Base(result.OutputPath) != "icon-min.svg" {
+		t.Fatalf("unexpected output path %q", result.OutputPath)
+	}
+	data, err := os.ReadFile(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "decorative comment") {
+		t.Fatalf("comment survived minification: %q", data)
+	}
+}
+
 // TestExpandPathsFindsImagesAndDeduplicates 验证目录递归、扩展名大小写和路径去重。
 func TestExpandPathsFindsImagesAndDeduplicates(t *testing.T) {
 	dir := t.TempDir()
@@ -120,6 +256,30 @@ func TestExpandPathsFindsImagesAndDeduplicates(t *testing.T) {
 	got := expandPaths([]string{dir, a})
 	if len(got) != 2 || got[0] != a || got[1] != b {
 		t.Fatalf("expandPaths = %#v", got)
+	}
+}
+
+// TestExpandPathsIncludesNewFormats 验证目录扫描能识别 GIF、WebP、SVG 扩展名。
+func TestExpandPathsIncludesNewFormats(t *testing.T) {
+	dir := t.TempDir()
+	want := []string{
+		filepath.Join(dir, "anim.gif"),
+		filepath.Join(dir, "icon.svg"),
+		filepath.Join(dir, "pic.webp"),
+	}
+	for _, path := range want {
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := expandPaths([]string{dir})
+	if len(got) != len(want) {
+		t.Fatalf("expandPaths = %#v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expandPaths[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

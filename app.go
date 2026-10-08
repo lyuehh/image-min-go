@@ -99,7 +99,7 @@ func (a *imageApp) dropZone(c *ui.Context) {
 			ui.Icon(c, imageIcon).Size(23, 23)
 		})
 		ui.Text(c, "把图片拖到这里").FontSize(17).FontWeight(650)
-		ui.Text(c, "支持 PNG 和 JPEG，也可以拖入整个文件夹").FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, "支持 PNG、JPEG、GIF、WebP 和 SVG，也可以拖入整个文件夹").FontSize(12).TextColor(t.TextMuted)
 		if ui.Button(c, "选择图片…").Disabled(a.busy || a.dialogOpen).Clicked() {
 			a.pickImages()
 		}
@@ -271,7 +271,7 @@ func (a *imageApp) pickImages() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Parent:   a.window,
 			Title:    "选择要压缩的图片",
-			Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg"}}},
+			Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "svg"}}},
 			Multiple: true,
 		})
 		// err == nil 只说明对话框本身没有失败；用户取消时 paths 通常为空，addPaths
