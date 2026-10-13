@@ -17,6 +17,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/svg"
+	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
 )
 
@@ -113,6 +114,8 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 		img, err = imaging.Decode(file, imaging.AutoOrientation(true))
 	case "webp":
 		img, err = webp.Decode(file)
+	case "tiff":
+		img, err = tiff.Decode(file)
 	default:
 		img, err = png.Decode(file)
 	}
@@ -133,6 +136,10 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 	case "webp":
 		// nativewebp 始终输出无损 VP8L，默认压缩级别已能显著减小典型 WebP 体积。
 		err = nativewebp.Encode(&encoded, img, nil)
+	case "tiff":
+		// TIFF 常以无压缩保存。改用 Deflate 并开启差分预测器（Predictor），对连续色
+		// 调的图片能显著减小体积，同时保持无损。
+		err = tiff.Encode(&encoded, img, &tiff.Options{Compression: tiff.Deflate, Predictor: true})
 	default:
 		encoder := png.Encoder{CompressionLevel: png.BestCompression}
 		err = encoder.Encode(&encoded, img)
@@ -146,7 +153,7 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 }
 
 // unsupportedFormatMessage 是扩展名无法识别时统一返回的提示，列出全部支持格式。
-const unsupportedFormatMessage = "仅支持 PNG、JPEG、GIF、WebP 和 SVG"
+const unsupportedFormatMessage = "仅支持 PNG、JPEG、GIF、WebP、TIFF 和 SVG"
 
 // supportedFormat 根据扩展名判断当前支持的编码格式。
 //
@@ -162,6 +169,8 @@ func supportedFormat(path string) (string, bool) {
 		return "gif", true
 	case ".webp":
 		return "webp", true
+	case ".tif", ".tiff":
+		return "tiff", true
 	case ".svg":
 		return "svg", true
 	default:

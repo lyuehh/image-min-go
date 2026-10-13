@@ -5,7 +5,11 @@
   "out": "build",
   "fileAssociations": [
     { "ext": ["png"], "name": "PNG Image", "mimeType": "image/png", "role": "Viewer" },
-    { "ext": ["jpg", "jpeg"], "name": "JPEG Image", "mimeType": "image/jpeg", "role": "Viewer" }
+    { "ext": ["jpg", "jpeg"], "name": "JPEG Image", "mimeType": "image/jpeg", "role": "Viewer" },
+    { "ext": ["gif"], "name": "GIF Image", "mimeType": "image/gif", "role": "Viewer" },
+    { "ext": ["webp"], "name": "WebP Image", "mimeType": "image/webp", "role": "Viewer" },
+    { "ext": ["tif", "tiff"], "name": "TIFF Image", "mimeType": "image/tiff", "role": "Viewer" },
+    { "ext": ["svg"], "name": "SVG Image", "mimeType": "image/svg+xml", "role": "Viewer" }
   ],
   "macos": {
     "minimumSystemVersion": "12.0",

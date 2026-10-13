@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	nativewebp "github.com/HugoSmits86/nativewebp"
+	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
 )
 
@@ -207,6 +208,58 @@ func TestCompressWebPReencodesLossless(t *testing.T) {
 	}
 }
 
+// TestCompressTIFFReencodesSmaller 验证未压缩 TIFF 重新编码为 Deflate 后体积减小、尺寸保留。
+func TestCompressTIFFReencodesSmaller(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scan.tiff")
+	img := image.NewNRGBA(image.Rect(0, 0, 96, 72))
+	// 连续色调让 Deflate+Predictor 有明显压缩空间。
+	for y := range 72 {
+		for x := range 96 {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), B: 120, A: 255})
+		}
+	}
+	// 写出未压缩源 TIFF（opt 为 nil）。
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tiff.Encode(f, img, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	result := compressImage(path, CompressionOptions{})
+	if result.Error != "" {
+		t.Fatalf("compressImage error: %s", result.Error)
+	}
+	if result.OutputSize > result.OriginalSize {
+		t.Fatalf("output grew from %d to %d", result.OriginalSize, result.OutputSize)
+	}
+	if filepath.Base(result.OutputPath) != "scan-min.tiff" {
+		t.Fatalf("unexpected output path %q", result.OutputPath)
+	}
+	if result.Width != 96 || result.Height != 72 {
+		t.Fatalf("unexpected size %dx%d", result.Width, result.Height)
+	}
+	out, err := os.Open(result.OutputPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer out.Close()
+	decoded, err := tiff.Decode(out)
+	if err != nil {
+		t.Fatalf("output is not valid TIFF: %v", err)
+	}
+	got := color.NRGBAModel.Convert(decoded.At(40, 30)).(color.NRGBA)
+	want := color.NRGBAModel.Convert(img.At(40, 30)).(color.NRGBA)
+	if got != want {
+		t.Fatalf("pixel changed: got %#v, want %#v", got, want)
+	}
+}
+
 // TestCompressSVGMinifiesText 验证 SVG 文本压缩去除注释和多余空白，且输出更小。
 func TestCompressSVGMinifiesText(t *testing.T) {
 	dir := t.TempDir()
@@ -266,6 +319,7 @@ func TestExpandPathsIncludesNewFormats(t *testing.T) {
 		filepath.Join(dir, "anim.gif"),
 		filepath.Join(dir, "icon.svg"),
 		filepath.Join(dir, "pic.webp"),
+		filepath.Join(dir, "scan.tiff"),
 	}
 	for _, path := range want {
 		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
