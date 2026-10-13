@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -109,5 +110,30 @@ func TestMergeDeduplicatesAndFormatSize(t *testing.T) {
 	}
 	if got := formatSize(1536); got != "1.5 KB" {
 		t.Fatalf("formatSize(1536) = %q", got)
+	}
+}
+
+// TestSettingsLanguageSwitch 验证在设置弹窗点击 English 后界面语言真正切换。
+func TestSettingsLanguageSwitch(t *testing.T) {
+	// 该测试会触发持久化，用独立目录覆盖 PathUserData，避免写入的语言影响其它测试。
+	dir := t.TempDir()
+	mygo.App.SetPath(mygo.PathUserData, dir)
+	t.Cleanup(func() { mygo.App.SetPath(mygo.PathUserData, testUserDataDir) })
+
+	a := newImageApp()
+	tester := ui.NewTester(a.view, 780, 640)
+	if err := tester.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if err := tester.Click("English"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if a.settings.Language != langEnglish {
+		t.Fatalf("language did not switch, got %q", a.settings.Language)
+	}
+	if !tester.HasText("Allow lossy compression") {
+		t.Fatalf("UI did not switch to english: %q", tester.Texts())
 	}
 }

@@ -31,12 +31,14 @@ func (a *imageApp) settingsDialog(c *ui.Context) {
 			ui.Text(c, s.SettingsTitle).FontSize(17).FontWeight(700)
 
 			// 语言选择：Segmented 用 *int 选择，0=中文、1=English。
+			// 必须通过 .Changed() 判断是否切换——它会先把本帧的点击输入应用到 lang，
+			// 再返回结果；直接读取 lang 会拿到应用点击前的旧值，导致切换“不生效”。
 			ui.Column(c).Gap(7).Children(func() {
 				ui.Text(c, s.Language).FontSize(12).FontWeight(600).TextColor(t.TextMuted)
 				lang := a.languageIndex()
-				ui.Segmented(c, &lang, s.LangChinese, s.LangEnglish).Label(s.Language)
-				if code := languageCode(lang); code != a.settings.Language {
-					a.settings.Language = code
+				seg := ui.Segmented(c, &lang, s.LangChinese, s.LangEnglish).Label(s.Language)
+				if seg.Changed() {
+					a.settings.Language = languageCode(lang)
 					a.persistSettings()
 					// 语言变化后重建应用菜单，让菜单文案跟随切换。
 					mygo.App.SetMenu(a.localizedMenu())
