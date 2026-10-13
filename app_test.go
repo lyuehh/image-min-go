@@ -24,6 +24,36 @@ func TestNativeViewEmptyState(t *testing.T) {
 	}
 }
 
+// TestNativeViewEnglishLocale 验证切换语言后界面以英文渲染。
+func TestNativeViewEnglishLocale(t *testing.T) {
+	a := newImageApp()
+	a.settings.Language = langEnglish
+	tester := ui.NewTester(a.view, 780, 640)
+	for _, text := range []string{"Drop images here", "Choose images\u2026", "No images yet", "Compress", "Settings"} {
+		if !tester.HasText(text) {
+			t.Errorf("english view does not show %q; texts: %q", text, tester.Texts())
+		}
+	}
+}
+
+// TestSettingsDialogShowsControls 验证点开设置后弹窗展示语言和有损压缩选项。
+func TestSettingsDialogShowsControls(t *testing.T) {
+	a := newImageApp()
+	tester := ui.NewTester(a.view, 780, 640)
+	if err := tester.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.settingsOpen {
+		t.Fatal("settings dialog did not open")
+	}
+	tester.Frame()
+	for _, text := range []string{"设置", "语言", "允许有损压缩", "完成"} {
+		if !tester.HasText(text) {
+			t.Errorf("settings dialog missing %q; texts: %q", text, tester.Texts())
+		}
+	}
+}
+
 // TestNativeViewRemovesAndClearsItems 模拟真实点击，验证事件会修改持久状态。
 func TestNativeViewRemovesAndClearsItems(t *testing.T) {
 	a := newImageApp()

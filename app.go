@@ -31,11 +31,16 @@ type imageItem struct {
 // UI 每次收到输入或状态更新时都会重新调用 view；因此状态不能放在 view 的局部变量里，
 // 而应保存在这个长期存在的结构体中。list 保存虚拟列表的滚动位置。
 type imageApp struct {
-	items      []imageItem
-	quality    float64
-	busy       bool
-	loading    int
-	dialogOpen bool
+	items   []imageItem
+	busy    bool
+	loading int
+	// settings 是持久化的用户偏好（语言、是否有损、有损质量）。
+	settings Settings
+	// quality 绑定设置页里的有损质量滑块；它是 float64 因为 StepSlider 用浮点数。
+	quality float64
+	// settingsOpen 控制设置弹窗是否显示。
+	settingsOpen bool
+	dialogOpen   bool
 	// batchDone/batchTotal 追踪当前批量压缩进度，用于在底部显示“已处理 n/total”。
 	batchDone  int
 	batchTotal int
@@ -47,9 +52,15 @@ type imageApp struct {
 }
 
 // newImageApp 是构造函数。Go 没有 constructor 关键字，惯例用 NewXxx/newXxx 函数。
-// &imageApp{...} 返回结构体地址；小写函数名表示只在当前 package 内使用。
+// 启动时读取持久化设置；quality 滑块初始值来自设置里的有损质量。
 func newImageApp() *imageApp {
-	return &imageApp{quality: defaultJPEGQuality}
+	s := loadSettings()
+	return &imageApp{settings: s, quality: float64(s.LossyQuality)}
+}
+
+// str 返回当前语言对应的文案表。界面代码全部通过它取文字。
+func (a *imageApp) str() *L {
+	return stringsFor(a.settings.Language)
 }
 
 // view 构建一帧原生界面。
@@ -66,6 +77,8 @@ func (a *imageApp) view(c *ui.Context) {
 			a.workspace(c)
 		})
 	})
+	// 设置弹窗在最外层绘制，覆盖在主界面之上。
+	a.settingsDialog(c)
 }
 
 // titleBar 绘制可拖动的自定义标题栏。
@@ -87,7 +100,7 @@ func (a *imageApp) titleBar(c *ui.Context) {
 
 // dropZone 构建文件拖放区，并直接读取 MyGO 原生文件拖放事件。
 func (a *imageApp) dropZone(c *ui.Context) {
-	t := c.Theme()
+	t, s := c.Theme(), a.str()
 	zone := ui.Column(c).Height(150).Shrink(0).Center().Gap(7).Radius(16).Background(t.Surface).Border(1, t.Border)
 	if zone.FileDragOver() {
 		zone.Background(t.Accent.Alpha(0.08)).Border(2, t.Accent)
@@ -101,9 +114,9 @@ func (a *imageApp) dropZone(c *ui.Context) {
 		ui.Box(c).Size(42, 42).Radius(12).Center().Background(t.Accent.Alpha(0.12)).TextColor(t.Accent).Children(func() {
 			ui.Icon(c, imageIcon).Size(23, 23)
 		})
-		ui.Text(c, "把图片拖到这里").FontSize(17).FontWeight(650)
-		ui.Text(c, "支持 PNG、JPEG、GIF、WebP、TIFF 和 SVG，也可以拖入整个文件夹").FontSize(12).TextColor(t.TextMuted)
-		if ui.Button(c, "选择图片…").Disabled(a.busy || a.dialogOpen).Clicked() {
+		ui.Text(c, s.DropHere).FontSize(17).FontWeight(650)
+		ui.Text(c, s.DropHint).FontSize(12).TextColor(t.TextMuted)
+		if ui.Button(c, s.ChooseImages).Disabled(a.busy || a.dialogOpen).Clicked() {
 			a.pickImages()
 		}
 	})
@@ -111,22 +124,21 @@ func (a *imageApp) dropZone(c *ui.Context) {
 
 // workspace 绘制工具栏、虚拟列表和底部汇总栏。
 func (a *imageApp) workspace(c *ui.Context) {
-	t := c.Theme()
+	t, s := c.Theme(), a.str()
 	ui.Column(c).Grow(1).MinHeight(0).Radius(14).Background(t.Surface).Border(1, t.Border).Clip().Children(func() {
 		ui.Row(c).Height(54).Shrink(0).PaddingX(14).Gap(10).Children(func() {
-			count := "还没有图片"
+			count := s.NoImages
 			if len(a.items) > 0 {
-				count = fmt.Sprintf("%d 张图片", len(a.items))
+				count = fmt.Sprintf(s.ImageCountFmt, len(a.items))
 			}
 			if a.loading > 0 {
-				ui.Spinner(c).Label("正在读取图片")
+				ui.Spinner(c).Label(s.LoadingImages)
 			}
 			ui.Text(c, count).FontSize(12).TextColor(t.TextMuted).Grow(1)
-			ui.Text(c, "JPEG 质量").FontSize(12).TextColor(t.TextMuted)
-			// &a.quality 取得字段地址。滑块通过这个指针直接更新数值；步长 1 保证质量为整数。
-			ui.StepSlider(c, &a.quality, 40, 100, 1).Width(105).Disabled(a.busy).Label("JPEG 质量")
-			ui.Textf(c, "%.0f", a.quality).Width(25).FontSize(12).FontFeatures("tnum")
-			if ui.Button(c, "清空").Disabled(len(a.items) == 0 || a.busy).Clicked() {
+			if ui.Button(c, s.Settings).Clicked() {
+				a.openSettings()
+			}
+			if ui.Button(c, s.Clear).Disabled(len(a.items) == 0 || a.busy).Clicked() {
 				a.items = nil
 			}
 		})
@@ -140,7 +152,7 @@ func (a *imageApp) workspace(c *ui.Context) {
 // fileList 使用虚拟列表显示文件。虚拟列表只构建当前可见行，大批图片也不会为每一行
 // 同时创建绘制对象。
 func (a *imageApp) fileList(c *ui.Context) {
-	t := c.Theme()
+	t, s := c.Theme(), a.str()
 	remove := -1
 	// any 是 interface{} 的别名，可容纳任意类型。用稳定的绝对路径作为 key，删除行时
 	// MyGO 仍能把焦点和滚动状态对应到正确图片，而不是错误地按旧索引对应。
@@ -160,17 +172,17 @@ func (a *imageApp) fileList(c *ui.Context) {
 			ui.Text(c, formatSize(item.Size)).Width(82).TextAlign(ui.End).FontSize(11).TextColor(t.TextMuted).FontFeatures("tnum")
 			a.itemStatus(c, item)
 			if item.Result != nil && item.Result.Error == "" {
-				if ui.Button(c, "显示").Clicked() {
+				if ui.Button(c, s.Show).Clicked() {
 					mygo.Shell.ShowItemInFolder(item.Result.OutputPath)
 				}
-			} else if ui.Button(c, "移除").Disabled(a.busy).Clicked() {
+			} else if ui.Button(c, s.Remove).Disabled(a.busy).Clicked() {
 				remove = i
 			}
 		})
 	}).Grow(1).Children(func() {
 		if len(a.items) == 0 {
 			ui.Column(c).Grow(1).Center().Children(func() {
-				ui.Text(c, "添加图片后将在这里显示").FontSize(12).TextColor(t.TextMuted)
+				ui.Text(c, s.EmptyHint).FontSize(12).TextColor(t.TextMuted)
 			})
 		}
 	})
@@ -183,7 +195,7 @@ func (a *imageApp) fileList(c *ui.Context) {
 
 // itemStatus 根据条目的状态选择“等待、处理中、失败、完成”四种展示。
 func (a *imageApp) itemStatus(c *ui.Context, item *imageItem) {
-	t := c.Theme()
+	t, s := c.Theme(), a.str()
 	box := ui.Row(c).Width(130).Shrink(0).Justify(ui.End).Gap(5)
 	box.Children(func() {
 		// 不带表达式的 switch 等价于 switch true，按顺序选择第一个成立条件。
@@ -191,48 +203,48 @@ func (a *imageApp) itemStatus(c *ui.Context, item *imageItem) {
 		case item.Error != "":
 			ui.Text(c, item.Error).FontSize(11).TextColor(t.Danger).SingleLine().Tooltip(item.Error)
 		case item.Processing:
-			ui.Spinner(c).Label("处理中")
-			ui.Text(c, "处理中").FontSize(11).TextColor(t.Accent)
+			ui.Spinner(c).Label(s.Processing)
+			ui.Text(c, s.Processing).FontSize(11).TextColor(t.Accent)
 		case item.Result == nil:
-			ui.Text(c, "等待压缩").FontSize(11).TextColor(t.TextMuted)
+			ui.Text(c, s.Waiting).FontSize(11).TextColor(t.TextMuted)
 		case item.Result.Error != "":
 			ui.Text(c, item.Result.Error).FontSize(11).TextColor(t.Danger).SingleLine().Tooltip(item.Result.Error)
 		default:
 			saved := item.Size - item.Result.OutputSize
 			if saved <= 0 {
-				ui.Text(c, "已是最优").FontSize(11).TextColor(t.TextMuted)
+				ui.Text(c, s.AlreadyOptimal).FontSize(11).TextColor(t.TextMuted)
 				return
 			}
 			// 整数相除会丢掉小数，所以先显式转为 float64 再计算百分比。
 			percent := float64(saved) / float64(item.Size) * 100
-			ui.Textf(c, "−%s · %.0f%%", formatSize(saved), percent).FontSize(11).FontWeight(650).TextColor(t.Success).FontFeatures("tnum")
+			ui.Textf(c, s.SavedItemFmt, formatSize(saved), percent).FontSize(11).FontWeight(650).TextColor(t.Success).FontFeatures("tnum")
 		}
 	})
 }
 
 // footer 显示批量统计和主要操作按钮。
 func (a *imageApp) footer(c *ui.Context) {
-	t := c.Theme()
+	t, s := c.Theme(), a.str()
 	ui.Row(c).Height(52).Shrink(0).PaddingX(14).Gap(12).Children(func() {
 		finished, saved := a.totals()
 		if finished > 0 {
 			// 累计已完成图片的原始总体积，算出整体节省百分比。
 			if originalTotal := a.finishedOriginalSize(); originalTotal > 0 {
 				percent := float64(saved) / float64(originalTotal) * 100
-				ui.Textf(c, "已完成 %d 张，共节省 %s（%.0f%%）", finished, formatSize(saved), percent).FontSize(12).TextColor(t.Success).Grow(1)
+				ui.Textf(c, s.DoneWithPercentFmt, finished, formatSize(saved), percent).FontSize(12).TextColor(t.Success).Grow(1)
 			} else {
-				ui.Textf(c, "已完成 %d 张，共节省 %s", finished, formatSize(saved)).FontSize(12).TextColor(t.Success).Grow(1)
+				ui.Textf(c, s.DoneSummaryFmt, finished, formatSize(saved)).FontSize(12).TextColor(t.Success).Grow(1)
 			}
 		} else {
-			ui.Text(c, "输出保存在原文件旁，不会覆盖原图").FontSize(12).TextColor(t.TextMuted).Grow(1)
+			ui.Text(c, s.OutputHint).FontSize(12).TextColor(t.TextMuted).Grow(1)
 		}
-		label := "开始压缩"
+		label := s.Compress
 		if a.busy {
-			label = "压缩中"
+			label = s.Compressing
 			if a.batchTotal > 0 {
 				ui.Textf(c, "%d/%d", a.batchDone, a.batchTotal).FontSize(12).TextColor(t.TextMuted).FontFeatures("tnum")
 			}
-			ui.Spinner(c).Label("正在压缩")
+			ui.Spinner(c).Label(s.ProgressSpinner)
 		}
 		if ui.PrimaryButton(c, label).Disabled(!a.canCompress()).Clicked() {
 			a.compress()
@@ -279,11 +291,12 @@ func (a *imageApp) pickImages() {
 		return
 	}
 	a.dialogOpen = true
+	s := a.str()
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Parent:   a.window,
-			Title:    "选择要压缩的图片",
-			Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "tif", "tiff", "svg"}}},
+			Title:    s.PickDialogTitle,
+			Filters:  []mygo.FileFilter{{Name: s.ImagesFilter, Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "tif", "tiff", "svg"}}},
 			Multiple: true,
 		})
 		// err == nil 只说明对话框本身没有失败；用户取消时 paths 通常为空，addPaths
@@ -306,8 +319,8 @@ func (a *imageApp) compress() {
 	a.busy = true
 	// 重置批量进度计数，用于底部显示 n/total。
 	a.batchDone = 0
-	// 滑块使用 float64，而 JPEG 编码器需要 int，因此显式转换。
-	quality := int(a.quality)
+	// 根据设置决定 JPEG 质量：无损模式固定最高质量，有损模式用用户设定的质量。
+	quality := a.settings.jpegQuality()
 	var work []int
 	for i := range a.items {
 		if a.items[i].Error == "" {

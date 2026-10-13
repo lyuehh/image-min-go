@@ -85,17 +85,7 @@ func main() {
 	app.OnOpenFile(func(path string) { enqueueFiles([]string{path}) })
 	app.WhenReady(func() {
 		applicationReady.Store(true)
-		app.SetMenu(mygo.NewMenu([]*mygo.MenuItem{
-			{Role: mygo.RoleAppMenu},
-			{Label: "文件", Submenu: []*mygo.MenuItem{
-				{Label: "添加图片…", Accelerator: "CmdOrCtrl+O", Click: func(*mygo.MenuItem, *mygo.Window) { state.pickImages() }},
-				mygo.Separator(),
-				{Role: mygo.RoleClose},
-			}},
-			{Role: mygo.RoleEditMenu},
-			{Role: mygo.RoleViewMenu},
-			{Role: mygo.RoleWindowMenu},
-		}))
+		app.SetMenu(state.localizedMenu())
 		openWindow()
 		state.addPaths(takePending())
 	})
