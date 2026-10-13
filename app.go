@@ -36,6 +36,9 @@ type imageApp struct {
 	busy       bool
 	loading    int
 	dialogOpen bool
+	// batchDone/batchTotal 追踪当前批量压缩进度，用于在底部显示“已处理 n/total”。
+	batchDone  int
+	batchTotal int
 	list       ui.ListState
 	window     *mygo.Window
 	// func(func()) 是“接收一个无参数函数、无返回值”的函数类型。生产环境把
@@ -99,7 +102,7 @@ func (a *imageApp) dropZone(c *ui.Context) {
 			ui.Icon(c, imageIcon).Size(23, 23)
 		})
 		ui.Text(c, "把图片拖到这里").FontSize(17).FontWeight(650)
-		ui.Text(c, "支持 PNG、JPEG、GIF、WebP 和 SVG，也可以拖入整个文件夹").FontSize(12).TextColor(t.TextMuted)
+		ui.Text(c, "支持 PNG、JPEG、GIF、WebP、TIFF 和 SVG，也可以拖入整个文件夹").FontSize(12).TextColor(t.TextMuted)
 		if ui.Button(c, "选择图片…").Disabled(a.busy || a.dialogOpen).Clicked() {
 			a.pickImages()
 		}
@@ -213,13 +216,22 @@ func (a *imageApp) footer(c *ui.Context) {
 	ui.Row(c).Height(52).Shrink(0).PaddingX(14).Gap(12).Children(func() {
 		finished, saved := a.totals()
 		if finished > 0 {
-			ui.Textf(c, "已完成 %d 张，共节省 %s", finished, formatSize(saved)).FontSize(12).TextColor(t.Success).Grow(1)
+			// 累计已完成图片的原始总体积，算出整体节省百分比。
+			if originalTotal := a.finishedOriginalSize(); originalTotal > 0 {
+				percent := float64(saved) / float64(originalTotal) * 100
+				ui.Textf(c, "已完成 %d 张，共节省 %s（%.0f%%）", finished, formatSize(saved), percent).FontSize(12).TextColor(t.Success).Grow(1)
+			} else {
+				ui.Textf(c, "已完成 %d 张，共节省 %s", finished, formatSize(saved)).FontSize(12).TextColor(t.Success).Grow(1)
+			}
 		} else {
 			ui.Text(c, "输出保存在原文件旁，不会覆盖原图").FontSize(12).TextColor(t.TextMuted).Grow(1)
 		}
 		label := "开始压缩"
 		if a.busy {
 			label = "压缩中"
+			if a.batchTotal > 0 {
+				ui.Textf(c, "%d/%d", a.batchDone, a.batchTotal).FontSize(12).TextColor(t.TextMuted).FontFeatures("tnum")
+			}
 			ui.Spinner(c).Label("正在压缩")
 		}
 		if ui.PrimaryButton(c, label).Disabled(!a.canCompress()).Clicked() {
@@ -271,7 +283,7 @@ func (a *imageApp) pickImages() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Parent:   a.window,
 			Title:    "选择要压缩的图片",
-			Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "svg"}}},
+			Filters:  []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "gif", "webp", "tif", "tiff", "svg"}}},
 			Multiple: true,
 		})
 		// err == nil 只说明对话框本身没有失败；用户取消时 paths 通常为空，addPaths
@@ -292,6 +304,8 @@ func (a *imageApp) compress() {
 		return
 	}
 	a.busy = true
+	// 重置批量进度计数，用于底部显示 n/total。
+	a.batchDone = 0
 	// 滑块使用 float64，而 JPEG 编码器需要 int，因此显式转换。
 	quality := int(a.quality)
 	var work []int
@@ -302,6 +316,7 @@ func (a *imageApp) compress() {
 			work = append(work, i)
 		}
 	}
+	a.batchTotal = len(work)
 	go func() {
 		for _, index := range work {
 			// busy 期间添加、清空、移除按钮都被禁用，所以 items 的索引保持稳定。
@@ -311,10 +326,25 @@ func (a *imageApp) compress() {
 			a.update(func() {
 				a.items[index].Processing = false
 				a.items[index].Result = &result
+				a.batchDone++
 			})
 		}
-		a.update(func() { a.busy = false })
+		a.update(func() {
+			a.busy = false
+			a.batchTotal = 0
+		})
 	}()
+}
+
+// finishedOriginalSize 累计已成功压缩图片的原始总字节数，用于计算整体节省百分比。
+func (a *imageApp) finishedOriginalSize() int64 {
+	var total int64
+	for _, item := range a.items {
+		if item.Result != nil && item.Result.Error == "" {
+			total += item.Size
+		}
+	}
+	return total
 }
 
 // canCompress 集中定义按钮可用条件，避免 UI 与实际操作使用两套不一致的判断。
