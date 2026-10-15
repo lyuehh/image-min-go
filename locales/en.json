@@ -1,0 +1,44 @@
+{
+  "@@locale": "en",
+
+  "dropHere": "Drop images here",
+  "dropHint": "Supports PNG, JPEG, GIF, WebP, TIFF and SVG — whole folders too",
+  "chooseImages": "Choose images…",
+
+  "noImages": "No images yet",
+  "imageCount": "{count, plural, one {# image} other {# images}}",
+  "loadingImages": "Reading images",
+  "clear": "Clear",
+  "settings": "Settings",
+  "emptyHint": "Added images will show up here",
+  "show": "Show",
+  "remove": "Remove",
+
+  "processing": "Processing",
+  "waiting": "Waiting",
+  "alreadyOptimal": "Already optimal",
+  "savedItem": "−{size} · {percent}%",
+
+  "doneWithPercent": "Done {count}, saved {saved} ({percent}%)",
+  "doneSummary": "Done {count}, saved {saved}",
+  "outputHint": "Output is saved next to the original; the original is never overwritten",
+  "compress": "Compress",
+  "compressing": "Compressing",
+  "progressSpinner": "Compressing",
+
+  "pickDialogTitle": "Choose images to compress",
+  "imagesFilter": "Images",
+
+  "menuFile": "File",
+  "menuAddImages": "Add images…",
+
+  "settingsTitle": "Settings",
+  "language": "Language",
+  "langChinese": "中文",
+  "langEnglish": "English",
+  "allowLossy": "Allow lossy compression",
+  "allowLossyHint": "When on, JPEG is re-encoded at the quality below: smaller files, but some quality may be lost.",
+  "lossyQuality": "Lossy quality",
+  "losslessHint": "Lossless by default: JPEG is re-encoded at top quality, and the other formats are already lossless.",
+  "done": "Done"
+}
