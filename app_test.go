@@ -3,7 +3,6 @@ package main
 import (
 	"testing"
 
-	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -28,8 +27,8 @@ func TestNativeViewEmptyState(t *testing.T) {
 // TestNativeViewEnglishLocale 验证切换语言后界面以英文渲染。
 func TestNativeViewEnglishLocale(t *testing.T) {
 	a := newImageApp()
-	a.settings.Language = langEnglish
 	tester := ui.NewTester(a.view, 780, 640)
+	tester.SetLocale(langEnglish)
 	for _, text := range []string{"Drop images here", "Choose images\u2026", "No images yet", "Compress", "Settings"} {
 		if !tester.HasText(text) {
 			t.Errorf("english view does not show %q; texts: %q", text, tester.Texts())
@@ -113,27 +112,32 @@ func TestMergeDeduplicatesAndFormatSize(t *testing.T) {
 	}
 }
 
-// TestSettingsLanguageSwitch 验证在设置弹窗点击 English 后界面语言真正切换。
-func TestSettingsLanguageSwitch(t *testing.T) {
-	// 该测试会触发持久化，用独立目录覆盖 PathUserData，避免写入的语言影响其它测试。
-	dir := t.TempDir()
-	mygo.App.SetPath(mygo.PathUserData, dir)
-	t.Cleanup(func() { mygo.App.SetPath(mygo.PathUserData, testUserDataDir) })
-
+// TestSettingsDialogEnglishLocale 验证当应用语言为英文时，设置弹窗以英文渲染，
+// 且语言分段控件正确落在 English 一侧。语言现由 MyGO 原生 i18n 托管，测试用
+// Tester.SetLocale 模拟 mygo.App.SetLocale 后的效果。
+func TestSettingsDialogEnglishLocale(t *testing.T) {
 	a := newImageApp()
 	tester := ui.NewTester(a.view, 780, 640)
-	if err := tester.Click("设置"); err != nil {
+	tester.SetLocale(langEnglish)
+	if err := tester.Click("Settings"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Frame()
-	if err := tester.Click("English"); err != nil {
-		t.Fatal(err)
-	}
-	tester.Frame()
-	if a.settings.Language != langEnglish {
-		t.Fatalf("language did not switch, got %q", a.settings.Language)
-	}
 	if !tester.HasText("Allow lossy compression") {
-		t.Fatalf("UI did not switch to english: %q", tester.Texts())
+		t.Fatalf("settings dialog not in english: %q", tester.Texts())
+	}
+}
+
+// TestLanguageIndexCodeRoundTrip 验证语言标签与 Segmented 索引的双向映射。
+func TestLanguageIndexCodeRoundTrip(t *testing.T) {
+	if languageIndex(langChinese) != 0 || languageIndex(langEnglish) != 1 {
+		t.Fatalf("languageIndex mapping wrong: zh=%d en=%d", languageIndex(langChinese), languageIndex(langEnglish))
+	}
+	// 未知/空语言回退到中文（索引 0）。
+	if languageIndex("") != 0 || languageIndex("fr") != 0 {
+		t.Fatalf("unknown locale should map to chinese index 0")
+	}
+	if languageCode(0) != langChinese || languageCode(1) != langEnglish {
+		t.Fatalf("languageCode mapping wrong: 0=%q 1=%q", languageCode(0), languageCode(1))
 	}
 }

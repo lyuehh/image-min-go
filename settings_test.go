@@ -39,18 +39,15 @@ func TestJPEGQualityPolicy(t *testing.T) {
 
 // TestSettingsNormalizeClamps 验证损坏/越界字段被修正到合法范围。
 func TestSettingsNormalizeClamps(t *testing.T) {
-	s := Settings{Language: "fr", LossyQuality: 5}
+	s := Settings{LossyQuality: 5}
 	s.normalize()
-	if s.Language != langChinese {
-		t.Fatalf("unknown language not reset: %q", s.Language)
-	}
 	if s.LossyQuality != minLossyQuality {
 		t.Fatalf("low quality not clamped: %d", s.LossyQuality)
 	}
-	s = Settings{Language: langEnglish, LossyQuality: 999}
+	s = Settings{LossyQuality: 999}
 	s.normalize()
-	if s.Language != langEnglish || s.LossyQuality != maxLossyQuality {
-		t.Fatalf("normalize changed valid language or missed clamp: %#v", s)
+	if s.LossyQuality != maxLossyQuality {
+		t.Fatalf("high quality not clamped: %#v", s)
 	}
 }
 
@@ -61,7 +58,7 @@ func TestSettingsSaveLoadRoundTrip(t *testing.T) {
 	mygo.App.SetPath(mygo.PathUserData, dir)
 	t.Cleanup(func() { mygo.App.SetPath(mygo.PathUserData, testUserDataDir) })
 
-	want := Settings{Language: langEnglish, AllowLossy: true, LossyQuality: 70}
+	want := Settings{AllowLossy: true, LossyQuality: 70}
 	if err := saveSettings(want); err != nil {
 		t.Fatalf("saveSettings: %v", err)
 	}

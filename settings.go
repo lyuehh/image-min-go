@@ -10,9 +10,11 @@ import (
 	"github.com/egoist/mygo"
 )
 
-// 语言代码。const 分组声明常量；这些值也会被写进设置文件，改名会让旧文件失效。
+// 界面语言由 MyGO 原生 i18n 托管（mygo.App.Locale / SetLocale），不再存进本设置文件。
+// 源语言是简体中文（zh-Hans），英文（en）是它的翻译；下面两个常量仅在构建语言菜单
+// 和设置页的语言切换中引用。
 const (
-	langChinese = "zh"
+	langChinese = "zh-Hans"
 	langEnglish = "en"
 )
 
@@ -33,16 +35,16 @@ const settingsFileName = "settings.json"
 //
 // json 标签决定文件里的字段名。AllowLossy 关闭时进行无损压缩；开启时 JPEG 按
 // LossyQuality 重新编码。零值（AllowLossy=false）正好对应“默认无损”，符合需求。
+// 界面语言由 MyGO 原生 i18n 持久化，不在此结构体内。旧版本写入的 language 字段
+// 会在反序列化时被忽略。
 type Settings struct {
-	Language     string `json:"language"`
-	AllowLossy   bool   `json:"allowLossy"`
-	LossyQuality int    `json:"lossyQuality"`
+	AllowLossy   bool `json:"allowLossy"`
+	LossyQuality int  `json:"lossyQuality"`
 }
 
-// defaultSettings 返回首次启动或读档失败时使用的默认设置：中文、无损、默认质量。
+// defaultSettings 返回首次启动或读档失败时使用的默认设置：无损、默认质量。
 func defaultSettings() Settings {
 	return Settings{
-		Language:     langChinese,
 		AllowLossy:   false,
 		LossyQuality: defaultLossyQuality,
 	}
@@ -50,9 +52,6 @@ func defaultSettings() Settings {
 
 // normalize 把可能来自旧文件或损坏文件的字段修正到合法范围，避免界面出现非法值。
 func (s *Settings) normalize() {
-	if s.Language != langEnglish {
-		s.Language = langChinese
-	}
 	if s.LossyQuality < minLossyQuality {
 		s.LossyQuality = minLossyQuality
 	}

@@ -14,5 +14,6 @@
   "macos": {
     "minimumSystemVersion": "12.0",
     "signingIdentity": "-"
-  }
+  },
+  "i18n": { "dir": "locales", "source": "zh-Hans" }
 }

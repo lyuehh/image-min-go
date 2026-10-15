@@ -7,6 +7,9 @@ import (
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
+
+	// 导入生成的文案包，其 init 把目录里的语言（zh-Hans、en）注册为应用支持的语言。
+	_ "github.com/lyuehh/image-min-go/locales"
 )
 
 // 包级 var 保存应用生命周期状态。括号形式 var (...) 可以集中声明多个变量。
@@ -86,6 +89,9 @@ func main() {
 	app.WhenReady(func() {
 		applicationReady.Store(true)
 		app.SetMenu(state.localizedMenu())
+		// 语言变化时（设置里切换，或系统语言变化）重建菜单，让菜单文案跟随切换。
+		// 窗口内的原生界面会自动重绘，无需在此处理。
+		app.OnLocaleChanged(func(string) { app.SetMenu(state.localizedMenu()) })
 		openWindow()
 		state.addPaths(takePending())
 	})

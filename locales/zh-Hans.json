@@ -1,0 +1,70 @@
+{
+  "@@locale": "zh-Hans",
+
+  "dropHere": "把图片拖到这里",
+  "dropHint": "支持 PNG、JPEG、GIF、WebP、TIFF 和 SVG，也可以拖入整个文件夹",
+  "chooseImages": "选择图片…",
+
+  "noImages": "还没有图片",
+  "imageCount": "{count, plural, other {# 张图片}}",
+  "@imageCount": {
+    "description": "工具栏左侧的图片数量",
+    "placeholders": { "count": { "type": "int", "example": "3" } }
+  },
+  "loadingImages": "正在读取图片",
+  "clear": "清空",
+  "settings": "设置",
+  "emptyHint": "添加图片后将在这里显示",
+  "show": "显示",
+  "remove": "移除",
+
+  "processing": "处理中",
+  "waiting": "等待压缩",
+  "alreadyOptimal": "已是最优",
+  "savedItem": "−{size} · {percent}%",
+  "@savedItem": {
+    "description": "单条图片节省的体积与百分比，size 和 percent 均为已格式化好的字符串",
+    "placeholders": {
+      "size": { "type": "String", "example": "4 KB" },
+      "percent": { "type": "String", "example": "40" }
+    }
+  },
+
+  "doneWithPercent": "已完成 {count} 张，共节省 {saved}（{percent}%）",
+  "@doneWithPercent": {
+    "description": "底部汇总：已完成数量、节省体积与整体百分比",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" },
+      "saved": { "type": "String", "example": "4 KB" },
+      "percent": { "type": "String", "example": "40" }
+    }
+  },
+  "doneSummary": "已完成 {count} 张，共节省 {saved}",
+  "@doneSummary": {
+    "description": "底部汇总：无整体百分比时的版本",
+    "placeholders": {
+      "count": { "type": "int", "example": "3" },
+      "saved": { "type": "String", "example": "4 KB" }
+    }
+  },
+  "outputHint": "输出保存在原文件旁，不会覆盖原图",
+  "compress": "开始压缩",
+  "compressing": "压缩中",
+  "progressSpinner": "正在压缩",
+
+  "pickDialogTitle": "选择要压缩的图片",
+  "imagesFilter": "图片",
+
+  "menuFile": "文件",
+  "menuAddImages": "添加图片…",
+
+  "settingsTitle": "设置",
+  "language": "语言",
+  "langChinese": "中文",
+  "langEnglish": "English",
+  "allowLossy": "允许有损压缩",
+  "allowLossyHint": "开启后 JPEG 会按下面的质量重新编码，体积更小但可能损失画质。",
+  "lossyQuality": "有损压缩质量",
+  "losslessHint": "默认进行无损压缩：JPEG 以最高质量重新编码，其它格式本就无损。",
+  "done": "完成"
+}
