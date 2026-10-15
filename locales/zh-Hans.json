@@ -66,5 +66,11 @@
   "allowLossyHint": "开启后 JPEG 会按下面的质量重新编码，体积更小但可能损失画质。",
   "lossyQuality": "有损压缩质量",
   "losslessHint": "默认进行无损压缩：JPEG 以最高质量重新编码，其它格式本就无损。",
+  "convertFormat": "转换为现代格式",
+  "convertFormatHint": "开启后，位图（PNG/JPEG/WebP/TIFF）会另存为下面选择的格式，体积通常更小；GIF 和 SVG 仍保持原格式。",
+  "keepFormatHint": "默认保持原格式，仅在原文件旁生成同格式的压缩副本。",
+  "targetFormat": "目标格式",
+  "formatAvif": "AVIF",
+  "formatJxl": "JPEG XL",
   "done": "完成"
 }

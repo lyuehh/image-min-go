@@ -15,6 +15,8 @@ import (
 
 	nativewebp "github.com/HugoSmits86/nativewebp"
 	"github.com/disintegration/imaging"
+	"github.com/gen2brain/avif"
+	"github.com/gen2brain/jpegxl"
 	"github.com/tdewolff/minify/v2"
 	"github.com/tdewolff/minify/v2/svg"
 	"golang.org/x/image/tiff"
@@ -34,6 +36,12 @@ const defaultJPEGQuality = 82
 // Go 方法并不依赖它，但保留标签可以让这个数据结构以后用于配置文件或 API。
 type CompressionOptions struct {
 	JPEGQuality int `json:"jpegQuality"`
+	// TargetFormat 为空表示保持原格式（默认行为）；"avif" / "jxl" 表示把位图另存为
+	// 对应的现代格式。仅在用户显式开启“转换格式”后才会被设置。GIF 与 SVG 会忽略它。
+	TargetFormat string `json:"targetFormat,omitempty"`
+	// Lossless 表示无损模式。它只影响支持无损开关的新格式编码器（AVIF / JXL）；
+	// JPEG 仍沿用 JPEGQuality 这个数值（无损模式下由上层传入 100）。
+	Lossless bool `json:"lossless,omitempty"`
 }
 
 // CompressionResult 是单张图片的处理结果。
@@ -127,6 +135,12 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 	// Go 支持并行赋值：先计算右边，再一起写入左边。
 	result.Width, result.Height = bounds.Dx(), bounds.Dy()
 
+	// 用户显式开启“转换格式”时，把已解码的位图编码为 AVIF / JXL 并写成新扩展名。
+	// GIF 和 SVG 不会走到这里（它们在上面各有分支），因此动画与矢量不受影响。
+	if ext, ok := convertedExtension(options.TargetFormat); ok {
+		return encodeConverted(path, img, info, options, ext, result)
+	}
+
 	// bytes.Buffer 实现 io.Writer，把编码结果先放在内存中。这样可在落盘前比较大小，
 	// 避免“压缩”后反而生成更大的文件。注意：超大图片会因此占用额外内存。
 	var encoded bytes.Buffer
@@ -150,6 +164,63 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 	}
 
 	return finalizeOutput(path, file, info, encoded, result)
+}
+
+// convertedExtension 把目标格式名映射为输出扩展名。返回 (ext, true) 表示需要转换，
+// 空字符串或未知值返回 ("", false) 表示保持原格式。统一在这里判断，避免各处散落字符串比较。
+func convertedExtension(target string) (string, bool) {
+	switch target {
+	case "avif":
+		return ".avif", true
+	case "jxl":
+		return ".jxl", true
+	default:
+		return "", false
+	}
+}
+
+// encodeConverted 把已解码的位图编码为目标现代格式（AVIF / JXL）并写到带新扩展名的
+// 输出路径。与同格式重编码不同：转换是用户显式选择的目标格式，因此即使体积更大也照常
+// 写出转换结果（不会退回复制原图，否则会得到一个扩展名与内容不符的文件），但仍如实报告
+// 体积，让 UI 展示真实结果。
+func encodeConverted(path string, img image.Image, info os.FileInfo, options CompressionOptions, ext string, result CompressionResult) CompressionResult {
+	var encoded bytes.Buffer
+	var err error
+	switch ext {
+	case ".avif":
+		if options.Lossless {
+			err = avif.Encode(&encoded, img, avif.Options{Lossless: true})
+		} else {
+			err = avif.Encode(&encoded, img, avif.Options{Quality: options.JPEGQuality})
+		}
+	case ".jxl":
+		if options.Lossless {
+			err = jpegxl.Encode(&encoded, img, jpegxl.Options{Lossless: true})
+		} else {
+			err = jpegxl.Encode(&encoded, img, jpegxl.Options{Quality: options.JPEGQuality})
+		}
+	default:
+		result.Error = "不支持的目标格式"
+		return result
+	}
+	if err != nil {
+		result.Error = "压缩失败: " + err.Error()
+		return result
+	}
+
+	outputPath, err := nextOutputPathExt(path, ext)
+	if err != nil {
+		result.Error = "创建输出路径失败: " + err.Error()
+		return result
+	}
+	result.OutputPath = outputPath
+	if err = writeAtomic(outputPath, bytes.NewReader(encoded.Bytes()), info.Mode().Perm()); err != nil {
+		result.Error = "写入失败: " + err.Error()
+		result.OutputPath = ""
+		return result
+	}
+	result.OutputSize = int64(encoded.Len())
+	return result
 }
 
 // unsupportedFormatMessage 是扩展名无法识别时统一返回的提示，列出全部支持格式。
@@ -252,14 +323,19 @@ func finalizeOutput(path string, original io.Reader, info os.FileInfo, encoded b
 	return result
 }
 
-// nextOutputPath 选择一个未占用的非破坏性输出名。
-//
-// 已有 photo-min.jpg 时继续尝试 photo-min-2.jpg、photo-min-3.jpg……。
-// for n := 2; ; n++ 是没有条件的循环；只有 return 才会离开它。
+// nextOutputPath 选择一个未占用的非破坏性输出名（保持原扩展名）。
 func nextOutputPath(path string) (string, error) {
-	ext := filepath.Ext(path)
-	base := strings.TrimSuffix(path, ext)
-	candidate := base + "-min" + ext
+	return nextOutputPathExt(path, filepath.Ext(path))
+}
+
+// nextOutputPathExt 选择一个未占用的非破坏性输出名，并使用 outExt 作为输出扩展名。
+//
+// 保持原格式时 outExt 与原扩展名相同（photo-min.jpg）；转换格式时 outExt 是目标扩展名
+// （photo-min.avif）。已占用时继续尝试 photo-min-2.avif、photo-min-3.avif……。
+// for n := 2; ; n++ 是没有条件的循环；只有 return 才会离开它。
+func nextOutputPathExt(path, outExt string) (string, error) {
+	base := strings.TrimSuffix(path, filepath.Ext(path))
+	candidate := base + "-min" + outExt
 	for n := 2; ; n++ {
 		if _, err := os.Stat(candidate); err != nil {
 			// 只有“文件不存在”说明名字可用。权限错误等其他问题必须返回，不能也当成
@@ -269,7 +345,7 @@ func nextOutputPath(path string) (string, error) {
 			}
 			return "", err
 		}
-		candidate = fmt.Sprintf("%s-min-%d%s", base, n, ext)
+		candidate = fmt.Sprintf("%s-min-%d%s", base, n, outExt)
 	}
 }
 

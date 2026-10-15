@@ -49,6 +49,24 @@ func TestSettingsNormalizeClamps(t *testing.T) {
 	if s.LossyQuality != maxLossyQuality {
 		t.Fatalf("high quality not clamped: %#v", s)
 	}
+	// 未知或空的目标格式回退到 AVIF。
+	s = Settings{LossyQuality: 60, TargetFormat: "bogus"}
+	s.normalize()
+	if s.TargetFormat != formatAVIF {
+		t.Fatalf("invalid target format not reset: %q", s.TargetFormat)
+	}
+}
+
+// TestTargetFormatPolicy 验证“仅开启转换后才返回目标格式”的决策逻辑。
+func TestTargetFormatPolicy(t *testing.T) {
+	off := Settings{ConvertFormat: false, TargetFormat: formatJXL}
+	if got := off.targetFormat(); got != "" {
+		t.Fatalf("convert off should keep original format, got %q", got)
+	}
+	on := Settings{ConvertFormat: true, TargetFormat: formatJXL}
+	if got := on.targetFormat(); got != formatJXL {
+		t.Fatalf("convert on target = %q, want %q", got, formatJXL)
+	}
 }
 
 // TestSettingsSaveLoadRoundTrip 验证设置能写盘并原样读回。
@@ -58,7 +76,7 @@ func TestSettingsSaveLoadRoundTrip(t *testing.T) {
 	mygo.App.SetPath(mygo.PathUserData, dir)
 	t.Cleanup(func() { mygo.App.SetPath(mygo.PathUserData, testUserDataDir) })
 
-	want := Settings{AllowLossy: true, LossyQuality: 70}
+	want := Settings{AllowLossy: true, LossyQuality: 70, ConvertFormat: true, TargetFormat: formatJXL}
 	if err := saveSettings(want); err != nil {
 		t.Fatalf("saveSettings: %v", err)
 	}

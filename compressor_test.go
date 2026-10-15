@@ -356,6 +356,83 @@ func TestWriteAtomicNeverOverwritesExistingFile(t *testing.T) {
 	}
 }
 
+// TestCompressConvertsPNGToModernFormats 验证开启转换后，PNG 会被编码为 AVIF / JXL
+// 并写成对应扩展名，输出是真正的对应格式（按文件头判断）。
+func TestCompressConvertsPNGToModernFormats(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "shot.png")
+	img := image.NewNRGBA(image.Rect(0, 0, 48, 48))
+	for y := range 48 {
+		for x := range 48 {
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(x * 5), G: uint8(y * 5), B: 120, A: 255})
+		}
+	}
+	writePNG(t, path, img, png.NoCompression)
+
+	cases := []struct {
+		format string
+		ext    string
+		magic  []byte // AVIF 的 ftyp 品牌 / JXL 裸流签名
+	}{
+		{formatAVIF, ".avif", []byte("ftyp")},
+		{formatJXL, ".jxl", []byte{0xFF, 0x0A}},
+	}
+	for _, tc := range cases {
+		result := compressImage(path, CompressionOptions{JPEGQuality: 60, TargetFormat: tc.format, Lossless: true})
+		if result.Error != "" {
+			t.Fatalf("%s convert error: %s", tc.format, result.Error)
+		}
+		if filepath.Ext(result.OutputPath) != tc.ext {
+			t.Fatalf("%s output ext = %q, want %q", tc.format, result.OutputPath, tc.ext)
+		}
+		if result.OutputSize <= 0 {
+			t.Fatalf("%s output size = %d", tc.format, result.OutputSize)
+		}
+		data, err := os.ReadFile(result.OutputPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Contains(data[:min(32, len(data))], tc.magic) {
+			t.Fatalf("%s output does not look like the target format", tc.format)
+		}
+	}
+}
+
+// TestCompressConvertSkipsGIFAndSVG 验证即使开启转换，GIF 和 SVG 仍保持原格式。
+func TestCompressConvertSkipsGIFAndSVG(t *testing.T) {
+	dir := t.TempDir()
+
+	gifPath := filepath.Join(dir, "anim.gif")
+	writeSingleFrameGIF(t, gifPath)
+	if got := compressImage(gifPath, CompressionOptions{TargetFormat: formatAVIF}); got.Error != "" || filepath.Ext(got.OutputPath) != ".gif" {
+		t.Fatalf("GIF should stay .gif, got path %q err %q", got.OutputPath, got.Error)
+	}
+
+	svgPath := filepath.Join(dir, "icon.svg")
+	if err := os.WriteFile(svgPath, []byte(`<svg xmlns="http://www.w3.org/2000/svg"><!-- c --><rect x="0" y="0" width="10" height="10"/></svg>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := compressImage(svgPath, CompressionOptions{TargetFormat: formatJXL}); got.Error != "" || filepath.Ext(got.OutputPath) != ".svg" {
+		t.Fatalf("SVG should stay .svg, got path %q err %q", got.OutputPath, got.Error)
+	}
+}
+
+// writeSingleFrameGIF 写一个最小单帧 GIF，供转换跳过测试使用。
+func writeSingleFrameGIF(t *testing.T, path string) {
+	t.Helper()
+	frame := image.NewPaletted(image.Rect(0, 0, 16, 16), color.Palette{color.Black, color.White})
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := gif.EncodeAll(f, &gif.GIF{Image: []*image.Paletted{frame}, Delay: []int{10}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // writePNG 是测试辅助函数。t.Helper 让失败位置指向调用它的测试，而不是辅助函数内部。
 func writePNG(t *testing.T, path string, img image.Image, level png.CompressionLevel) {
 	t.Helper()
