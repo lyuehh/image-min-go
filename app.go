@@ -318,6 +318,12 @@ func (a *imageApp) compress() {
 	a.batchDone = 0
 	// 根据设置决定 JPEG 质量：无损模式固定最高质量，有损模式用用户设定的质量。
 	quality := a.settings.jpegQuality()
+	// 目标格式为空表示保持原格式；开启转换后为 "avif" / "jxl"。无损标志跟随有损开关。
+	options := CompressionOptions{
+		JPEGQuality:  quality,
+		TargetFormat: a.settings.targetFormat(),
+		Lossless:     !a.settings.AllowLossy,
+	}
 	var work []int
 	for i := range a.items {
 		if a.items[i].Error == "" {
@@ -330,7 +336,7 @@ func (a *imageApp) compress() {
 	go func() {
 		for _, index := range work {
 			// busy 期间添加、清空、移除按钮都被禁用，所以 items 的索引保持稳定。
-			result := compressImage(a.items[index].Path, CompressionOptions{JPEGQuality: quality})
+			result := compressImage(a.items[index].Path, options)
 			// result 在本次循环中是独立变量；取 &result 后 Go 会进行逃逸分析，把需要的
 			// 值安全放到堆上。不要把旧版 Go 中复用的 range 变量地址用于这种场景。
 			a.update(func() {

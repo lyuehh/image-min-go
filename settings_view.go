@@ -75,6 +75,31 @@ func (a *imageApp) settingsDialog(c *ui.Context) {
 				}
 			})
 
+			ui.Divider(c)
+
+			// 转换格式开关：关闭=保持原格式（默认），开启后才显示并启用目标格式选择。
+			ui.Column(c).Gap(7).Children(func() {
+				ui.Row(c).Gap(10).Children(func() {
+					ui.Text(c, s.ConvertFormat()).FontSize(13).FontWeight(600).Grow(1)
+					sw := ui.Switch(c, &a.settings.ConvertFormat).Label(s.ConvertFormat())
+					if sw.Changed() {
+						a.persistSettings()
+					}
+				})
+				if a.settings.ConvertFormat {
+					ui.Text(c, s.ConvertFormatHint()).FontSize(11).TextColor(t.TextMuted)
+					// 目标格式：Segmented 用 *int 选择，0=AVIF、1=JPEG XL。通过 .Changed() 判断是否切换。
+					target := targetFormatIndex(a.settings.TargetFormat)
+					seg := ui.Segmented(c, &target, s.FormatAvif(), s.FormatJxl()).Label(s.TargetFormat())
+					if seg.Changed() {
+						a.settings.TargetFormat = targetFormatCode(target)
+						a.persistSettings()
+					}
+				} else {
+					ui.Text(c, s.KeepFormatHint()).FontSize(11).TextColor(t.TextMuted)
+				}
+			})
+
 			ui.Row(c).Children(func() {
 				ui.Spacer(c)
 				if ui.PrimaryButton(c, s.Done()).Clicked() {
@@ -100,6 +125,22 @@ func languageCode(index int) string {
 		return langEnglish
 	}
 	return langChinese
+}
+
+// targetFormatIndex 把目标格式名映射为 Segmented 的索引（0=AVIF、1=JPEG XL）。
+func targetFormatIndex(format string) int {
+	if format == formatJXL {
+		return 1
+	}
+	return 0
+}
+
+// targetFormatCode 把 Segmented 的索引映射回目标格式名。
+func targetFormatCode(index int) string {
+	if index == 1 {
+		return formatJXL
+	}
+	return formatAVIF
 }
 
 // localizedMenu 按当前语言构建应用菜单。main.go 在启动时及语言变化时调用它。

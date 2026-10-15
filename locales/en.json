@@ -40,5 +40,11 @@
   "allowLossyHint": "When on, JPEG is re-encoded at the quality below: smaller files, but some quality may be lost.",
   "lossyQuality": "Lossy quality",
   "losslessHint": "Lossless by default: JPEG is re-encoded at top quality, and the other formats are already lossless.",
+  "convertFormat": "Convert to modern format",
+  "convertFormatHint": "When on, bitmaps (PNG/JPEG/WebP/TIFF) are saved as the format chosen below, usually smaller; GIF and SVG keep their original format.",
+  "keepFormatHint": "Keeps the original format by default: a compressed copy is written next to the original in the same format.",
+  "targetFormat": "Target format",
+  "formatAvif": "AVIF",
+  "formatJxl": "JPEG XL",
   "done": "Done"
 }

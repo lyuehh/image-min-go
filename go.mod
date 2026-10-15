@@ -6,14 +6,19 @@ require (
 	github.com/HugoSmits86/nativewebp v1.3.0
 	github.com/disintegration/imaging v1.6.2
 	github.com/egoist/mygo v0.5.1
+	github.com/gen2brain/avif v0.6.0
+	github.com/gen2brain/jpegxl v0.6.0
 	github.com/tdewolff/minify/v2 v2.24.19
 	golang.org/x/image v0.46.0
 )
 
 require (
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-text/typesetting v0.3.5 // indirect
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
+	github.com/tetratelabs/wazero v1.12.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 )
 

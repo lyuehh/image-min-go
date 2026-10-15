@@ -47,10 +47,28 @@ func TestSettingsDialogShowsControls(t *testing.T) {
 		t.Fatal("settings dialog did not open")
 	}
 	tester.Frame()
-	for _, text := range []string{"设置", "语言", "允许有损压缩", "完成"} {
+	for _, text := range []string{"设置", "语言", "允许有损压缩", "转换为现代格式", "完成"} {
 		if !tester.HasText(text) {
 			t.Errorf("settings dialog missing %q; texts: %q", text, tester.Texts())
 		}
+	}
+	// 默认不转换：目标格式选择器不出现，只有保持原格式的提示。
+	if tester.HasText("AVIF") || tester.HasText("JPEG XL") {
+		t.Errorf("target format picker should be hidden by default; texts: %q", tester.Texts())
+	}
+}
+
+// TestSettingsDialogConvertToggleRevealsTarget 验证开启“转换为现代格式”后才出现目标格式选择（UI 门控）。
+func TestSettingsDialogConvertToggleRevealsTarget(t *testing.T) {
+	a := newImageApp()
+	a.settings.ConvertFormat = true
+	tester := ui.NewTester(a.view, 780, 640)
+	if err := tester.Click("设置"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Frame()
+	if !tester.HasText("AVIF") || !tester.HasText("JPEG XL") {
+		t.Fatalf("target format picker not shown when convert enabled; texts: %q", tester.Texts())
 	}
 }
 

@@ -384,6 +384,66 @@ func (msgs Messages) LosslessHint() string {
 	return Catalog.Format(msgs.locale, "losslessHint", nil)
 }
 
+// ConvertFormat says "转换为现代格式"
+// in the language the app shows.
+func ConvertFormat() string { return In(i18n.Locale()).ConvertFormat() }
+
+// ConvertFormat says "转换为现代格式"
+// in the language of msgs.
+func (msgs Messages) ConvertFormat() string {
+	return Catalog.Format(msgs.locale, "convertFormat", nil)
+}
+
+// ConvertFormatHint says "开启后，位图（PNG/JPEG/WebP/TIFF）会另存为下面选择的格式，体积通常更小；GIF 和 SVG …"
+// in the language the app shows.
+func ConvertFormatHint() string { return In(i18n.Locale()).ConvertFormatHint() }
+
+// ConvertFormatHint says "开启后，位图（PNG/JPEG/WebP/TIFF）会另存为下面选择的格式，体积通常更小；GIF 和 SVG …"
+// in the language of msgs.
+func (msgs Messages) ConvertFormatHint() string {
+	return Catalog.Format(msgs.locale, "convertFormatHint", nil)
+}
+
+// KeepFormatHint says "默认保持原格式，仅在原文件旁生成同格式的压缩副本。"
+// in the language the app shows.
+func KeepFormatHint() string { return In(i18n.Locale()).KeepFormatHint() }
+
+// KeepFormatHint says "默认保持原格式，仅在原文件旁生成同格式的压缩副本。"
+// in the language of msgs.
+func (msgs Messages) KeepFormatHint() string {
+	return Catalog.Format(msgs.locale, "keepFormatHint", nil)
+}
+
+// TargetFormat says "目标格式"
+// in the language the app shows.
+func TargetFormat() string { return In(i18n.Locale()).TargetFormat() }
+
+// TargetFormat says "目标格式"
+// in the language of msgs.
+func (msgs Messages) TargetFormat() string {
+	return Catalog.Format(msgs.locale, "targetFormat", nil)
+}
+
+// FormatAvif says "AVIF"
+// in the language the app shows.
+func FormatAvif() string { return In(i18n.Locale()).FormatAvif() }
+
+// FormatAvif says "AVIF"
+// in the language of msgs.
+func (msgs Messages) FormatAvif() string {
+	return Catalog.Format(msgs.locale, "formatAvif", nil)
+}
+
+// FormatJxl says "JPEG XL"
+// in the language the app shows.
+func FormatJxl() string { return In(i18n.Locale()).FormatJxl() }
+
+// FormatJxl says "JPEG XL"
+// in the language of msgs.
+func (msgs Messages) FormatJxl() string {
+	return Catalog.Format(msgs.locale, "formatJxl", nil)
+}
+
 // Done says "完成"
 // in the language the app shows.
 func Done() string { return In(i18n.Locale()).Done() }

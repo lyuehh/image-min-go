@@ -28,6 +28,13 @@ const (
 	losslessJPEGQuality = 100
 )
 
+// 支持的目标转换格式名。与 CompressionOptions.TargetFormat 和 compressor.go 的
+// convertedExtension 一致；集中在此定义，避免各处写死字符串。
+const (
+	formatAVIF = "avif"
+	formatJXL  = "jxl"
+)
+
 // settingsFileName 是存放在 PathUserData 下的设置文件名。
 const settingsFileName = "settings.json"
 
@@ -40,13 +47,19 @@ const settingsFileName = "settings.json"
 type Settings struct {
 	AllowLossy   bool `json:"allowLossy"`
 	LossyQuality int  `json:"lossyQuality"`
+	// ConvertFormat 开启后才允许把位图转换为现代格式（非默认行为）。关闭时始终保持原格式。
+	ConvertFormat bool `json:"convertFormat"`
+	// TargetFormat 是 ConvertFormat 开启时的目标格式，合法值为 "avif" 或 "jxl"。
+	TargetFormat string `json:"targetFormat"`
 }
 
-// defaultSettings 返回首次启动或读档失败时使用的默认设置：无损、默认质量。
+// defaultSettings 返回首次启动或读档失败时使用的默认设置：无损、默认质量、不转换格式。
 func defaultSettings() Settings {
 	return Settings{
-		AllowLossy:   false,
-		LossyQuality: defaultLossyQuality,
+		AllowLossy:    false,
+		LossyQuality:  defaultLossyQuality,
+		ConvertFormat: false,
+		TargetFormat:  formatAVIF,
 	}
 }
 
@@ -58,6 +71,19 @@ func (s *Settings) normalize() {
 	if s.LossyQuality > maxLossyQuality {
 		s.LossyQuality = maxLossyQuality
 	}
+	// 未知或空的目标格式回退到 AVIF，避免旧文件或损坏文件导致转换分支拿到非法值。
+	if s.TargetFormat != formatAVIF && s.TargetFormat != formatJXL {
+		s.TargetFormat = formatAVIF
+	}
+}
+
+// targetFormat 返回本次压缩应传给编码器的目标格式名。关闭转换时返回空字符串
+// （保持原格式）；开启时返回 "avif" 或 "jxl"。
+func (s Settings) targetFormat() string {
+	if !s.ConvertFormat {
+		return ""
+	}
+	return s.TargetFormat
 }
 
 // jpegQuality 根据“是否允许有损”决定实际传给编码器的 JPEG 质量。
