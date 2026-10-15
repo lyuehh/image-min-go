@@ -137,8 +137,18 @@ func compressImage(path string, options CompressionOptions) CompressionResult {
 
 	// 用户显式开启“转换格式”时，把已解码的位图编码为 AVIF / JXL 并写成新扩展名。
 	// GIF 和 SVG 不会走到这里（它们在上面各有分支），因此动画与矢量不受影响。
+	// 若转换结果并不比原图更小（有损格式对已压缩图、或无损格式对有损源都可能变大），
+	// 则回退到保持原格式的常规压缩，守住“输出不会比原图更大”这一核心约定。
 	if ext, ok := convertedExtension(options.TargetFormat); ok {
-		return encodeConverted(path, img, info, options, ext, result)
+		converted, encErr := encodeTargetFormat(img, ext, options)
+		if encErr != nil {
+			result.Error = "压缩失败: " + encErr.Error()
+			return result
+		}
+		if int64(converted.Len()) < info.Size() {
+			return writeConverted(path, ext, converted, info, result)
+		}
+		// 转换没有更小：继续往下走常规同格式压缩分支。
 	}
 
 	// bytes.Buffer 实现 io.Writer，把编码结果先放在内存中。这样可在落盘前比较大小，
@@ -179,35 +189,38 @@ func convertedExtension(target string) (string, bool) {
 	}
 }
 
-// encodeConverted 把已解码的位图编码为目标现代格式（AVIF / JXL）并写到带新扩展名的
-// 输出路径。与同格式重编码不同：转换是用户显式选择的目标格式，因此即使体积更大也照常
-// 写出转换结果（不会退回复制原图，否则会得到一个扩展名与内容不符的文件），但仍如实报告
-// 体积，让 UI 展示真实结果。
-func encodeConverted(path string, img image.Image, info os.FileInfo, options CompressionOptions, ext string, result CompressionResult) CompressionResult {
+// avifSpeed / jxlEffort 是转换编码器的速度档位。gen2brain 的 Options 零值会被当成
+// “未设置”并回退到各自默认值，但 avif.Options{Speed:0} 恰好是最慢档（可达数分钟，
+// 表现为“卡死”），必须显式给一个快速且体积合理的档位。实测 speed 8 对 1600×1200
+// 照片亚秒级完成、体积接近最优；JXL effort 7 是库默认，速度体积均衡。
+const (
+	avifSpeed = 8
+	jxlEffort = 7
+)
+
+// encodeTargetFormat 把已解码的位图编码为目标现代格式（AVIF / JXL），只负责编码到内存，
+// 由调用方决定是否写盘。显式设置 Speed/Effort 以避免零值触发最慢档导致的长时间卡顿。
+func encodeTargetFormat(img image.Image, ext string, options CompressionOptions) (*bytes.Buffer, error) {
 	var encoded bytes.Buffer
-	var err error
 	switch ext {
 	case ".avif":
 		if options.Lossless {
-			err = avif.Encode(&encoded, img, avif.Options{Lossless: true})
-		} else {
-			err = avif.Encode(&encoded, img, avif.Options{Quality: options.JPEGQuality})
+			return &encoded, avif.Encode(&encoded, img, avif.Options{Lossless: true, Speed: avifSpeed})
 		}
+		return &encoded, avif.Encode(&encoded, img, avif.Options{Quality: options.JPEGQuality, Speed: avifSpeed})
 	case ".jxl":
 		if options.Lossless {
-			err = jpegxl.Encode(&encoded, img, jpegxl.Options{Lossless: true})
-		} else {
-			err = jpegxl.Encode(&encoded, img, jpegxl.Options{Quality: options.JPEGQuality})
+			return &encoded, jpegxl.Encode(&encoded, img, jpegxl.Options{Lossless: true, Effort: jxlEffort})
 		}
+		return &encoded, jpegxl.Encode(&encoded, img, jpegxl.Options{Quality: options.JPEGQuality, Effort: jxlEffort})
 	default:
-		result.Error = "不支持的目标格式"
-		return result
+		return &encoded, errors.New("不支持的目标格式")
 	}
-	if err != nil {
-		result.Error = "压缩失败: " + err.Error()
-		return result
-	}
+}
 
+// writeConverted 把转换后的字节写到带新扩展名的输出路径，并如实报告体积。
+// 仅在转换结果确实更小时才会被调用（见 compressImage 中的判断）。
+func writeConverted(path, ext string, encoded *bytes.Buffer, info os.FileInfo, result CompressionResult) CompressionResult {
 	outputPath, err := nextOutputPathExt(path, ext)
 	if err != nil {
 		result.Error = "创建输出路径失败: " + err.Error()

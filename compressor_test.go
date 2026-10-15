@@ -433,6 +433,43 @@ func writeSingleFrameGIF(t *testing.T, path string) {
 	}
 }
 
+// TestCompressConvertFallsBackWhenLarger 验证当转换结果比原图更大时，输出回退到保持原格式
+// 的常规压缩，守住“输出不会比原图更大”这一核心约定。对已压缩的有损 JPEG 做无损
+// AVIF 转换通常会显著变大，正好触发回退。
+func TestCompressConvertFallsBackWhenLarger(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "photo.jpg")
+	// 高熵噪点图使 JPEG 已经很小，无损 AVIF 难以更小。
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	for y := range 96 {
+		for x := range 96 {
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 7), G: uint8(y * 11), B: uint8((x + y) * 13), A: 255})
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := jpeg.Encode(f, img, &jpeg.Options{Quality: 70}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// 无损转换到 AVIF：预期比原 JPEG 大，因此回退到同格式输出。
+	result := compressImage(path, CompressionOptions{JPEGQuality: 100, TargetFormat: formatAVIF, Lossless: true})
+	if result.Error != "" {
+		t.Fatalf("convert fallback error: %s", result.Error)
+	}
+	if filepath.Ext(result.OutputPath) != ".jpg" {
+		t.Fatalf("expected fallback to .jpg, got %q", result.OutputPath)
+	}
+	if result.OutputSize > result.OriginalSize {
+		t.Fatalf("fallback output grew from %d to %d", result.OriginalSize, result.OutputSize)
+	}
+}
+
 // writePNG 是测试辅助函数。t.Helper 让失败位置指向调用它的测试，而不是辅助函数内部。
 func writePNG(t *testing.T, path string, img image.Image, level png.CompressionLevel) {
 	t.Helper()
